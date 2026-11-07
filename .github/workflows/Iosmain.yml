@@ -1,4 +1,4 @@
-name: Build NX2Apple iOS IPA (iPhone 15 Pro Max Target)
+name: Build NX2Apple iOS IPA (iPhone 15 Pro Max)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    # গিটহাবের অফিশিয়াল Apple Silicon (ARM64) রানার
+    # সঠিক এবং সমর্থিত গিটহাব ম্যাকওএস রানার
     runs-on: macos-14
 
     steps:
@@ -17,6 +17,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Select Xcode Version
         run: |
@@ -29,7 +34,6 @@ jobs:
 
       - name: Regenerate Xcode Project using XcodeGen
         run: |
-          # frontend-ios / Demo বা মূল project spec থাকলে সেখান থেকে প্রজেক্ট জেনারেট করবে
           if [ -f "frontend-ios/Demo/project.yml" ]; then
             xcodegen generate --spec frontend-ios/Demo/project.yml
           elif [ -f "dm/ios/project-shell.yml" ]; then
@@ -51,7 +55,6 @@ jobs:
           PROJ_FILE=""
           SCHEME_NAME=""
 
-          # উপযুক্তxcodeproj ফাইল এবং স্কিম নির্বাচন
           if [ -d "frontend-ios/Demo/ShellDemo.xcodeproj" ]; then
             PROJ_FILE="frontend-ios/Demo/ShellDemo.xcodeproj"
             SCHEME_NAME="ShellDemo"
@@ -79,8 +82,6 @@ jobs:
       - name: Package Unsigned IPA
         run: |
           mkdir -p $RUNNER_TEMP/Payload
-          
-          # .xcarchive থেকে .app ফাইল নিয়ে Payload ফোল্ডারে জিপ করে .ipa তৈরি
           APP_PATH=$(find $RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications -name "*.app" | head -n 1)
           
           if [ -n "$APP_PATH" ]; then
