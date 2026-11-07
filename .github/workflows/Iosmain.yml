@@ -1,4 +1,4 @@
-name: Build NX2Apple IPA (iPhone 15 Pro Max)
+name: Build NX2Apple iOS IPA (iPhone 15 Pro Max Target)
 
 on:
   push:
@@ -9,64 +9,91 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14 # সঠিক রানার যা গিটহাব অটোমেটিক প্রোভাইড করে
+    # গিটহাবের অফিশিয়াল Apple Silicon (ARM64) রানার
+    runs-on: macos-14
 
     steps:
-      - name: Checkout NX2Apple Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Set up Python 3.x
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Select Xcode Version
         run: |
           sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
           xcodebuild -version
 
-      - name: Install Python & Build Dependencies
+      - name: Install XcodeGen
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          brew install xcodegen
 
-      - name: Build Project Archive
+      - name: Regenerate Xcode Project using XcodeGen
         run: |
-          if [ -f "NX2Apple.xcodeproj" ]; then
+          # frontend-ios / Demo বা মূল project spec থাকলে সেখান থেকে প্রজেক্ট জেনারেট করবে
+          if [ -f "frontend-ios/Demo/project.yml" ]; then
+            xcodegen generate --spec frontend-ios/Demo/project.yml
+          elif [ -f "dm/ios/project-shell.yml" ]; then
+            xcodegen generate --spec dm/ios/project-shell.yml
+          elif [ -f "project.yml" ]; then
+            xcodegen generate --spec project.yml
+          fi
+
+      - name: Build Swift Package
+        run: |
+          if [ -d "frontend-ios" ]; then
+            swift build --package-path frontend-ios
+          else
+            swift build
+          fi
+
+      - name: Archive App (Unsigned)
+        run: |
+          PROJ_FILE=""
+          SCHEME_NAME=""
+
+          # উপযুক্তxcodeproj ফাইল এবং স্কিম নির্বাচন
+          if [ -d "frontend-ios/Demo/ShellDemo.xcodeproj" ]; then
+            PROJ_FILE="frontend-ios/Demo/ShellDemo.xcodeproj"
+            SCHEME_NAME="ShellDemo"
+          elif [ -d "ShellDemo.xcodeproj" ]; then
+            PROJ_FILE="ShellDemo.xcodeproj"
+            SCHEME_NAME="ShellDemo"
+          elif [ -d "NX2Apple.xcodeproj" ]; then
+            PROJ_FILE="NX2Apple.xcodeproj"
+            SCHEME_NAME="NX2Apple"
+          fi
+
+          if [ -n "$PROJ_FILE" ]; then
             xcodebuild archive \
-              -project NX2Apple.xcodeproj \
-              -scheme NX2Apple \
-              -sdk iphoneos \
-              -destination 'generic/platform=iOS' \
-              -archivePath $RUNNER_TEMP/NX2Apple.xcarchive \
-              CODE_SIGNING_ALLOWED=NO
-          elif [ -f "NX2Apple.xcworkspace" ]; then
-            xcodebuild archive \
-              -workspace NX2Apple.xcworkspace \
-              -scheme NX2Apple \
+              -project "$PROJ_FILE" \
+              -scheme "$SCHEME_NAME" \
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
               -archivePath $RUNNER_TEMP/NX2Apple.xcarchive \
               CODE_SIGNING_ALLOWED=NO
           else
-            echo "Standard Xcode project file not found. Running custom python build script if applicable."
+            echo "No Xcode project found to archive."
+            exit 1
           fi
 
       - name: Package Unsigned IPA
         run: |
           mkdir -p $RUNNER_TEMP/Payload
-          if [ -d "$RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications" ]; then
-            cp -r $RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications/*.app $RUNNER_TEMP/Payload/
+          
+          # .xcarchive থেকে .app ফাইল নিয়ে Payload ফোল্ডারে জিপ করে .ipa তৈরি
+          APP_PATH=$(find $RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications -name "*.app" | head -n 1)
+          
+          if [ -n "$APP_PATH" ]; then
+            cp -r "$APP_PATH" $RUNNER_TEMP/Payload/
             cd $RUNNER_TEMP
             zip -r NX2Apple_iPhone15ProMax.ipa Payload
             mv NX2Apple_iPhone15ProMax.ipa $GITHUB_WORKSPACE/
           else
-            echo "No .app bundle generated to package."
+            echo "No .app bundle generated!"
+            exit 1
           fi
 
-      - name: Upload IPA Artifact
+      - name: Upload Unsigned IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: NX2Apple-iPhone15ProMax-Unsigned-IPA
