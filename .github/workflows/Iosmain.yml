@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14 # Apple Silicon (M1/M2/M3) macOS Runner
+    runs-on: macos-14 # সঠিক রানার যা গিটহাব অটোমেটিক প্রোভাইড করে
 
     steps:
       - name: Checkout NX2Apple Repository
@@ -34,7 +34,6 @@ jobs:
 
       - name: Build Project Archive
         run: |
-          # NX2Apple প্রজেক্টে যদি কোনো Xcode Project থাকে বা Script দিয়ে বিল্ড হয়
           if [ -f "NX2Apple.xcodeproj" ]; then
             xcodebuild archive \
               -project NX2Apple.xcodeproj \
@@ -52,15 +51,12 @@ jobs:
               -archivePath $RUNNER_TEMP/NX2Apple.xcarchive \
               CODE_SIGNING_ALLOWED=NO
           else
-            echo "Standard Xcode project file not found. Running custom script if available."
-            # প্রয়োজন হলে এখানে আপনার কাস্টম মেক/পাইথন কমান্ড চালানো যাবে
+            echo "Standard Xcode project file not found. Running custom python build script if applicable."
           fi
 
       - name: Package Unsigned IPA
         run: |
           mkdir -p $RUNNER_TEMP/Payload
-          
-          # Archive থেকে .app ফাইল কপি করে Payload ফোল্ডারে নিয়ে IPA গঠন করা
           if [ -d "$RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications" ]; then
             cp -r $RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications/*.app $RUNNER_TEMP/Payload/
             cd $RUNNER_TEMP
