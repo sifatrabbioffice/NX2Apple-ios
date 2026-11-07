@@ -1,0 +1,90 @@
+name: Build iOS IPA (iPhone 15 Pro Max)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14 # Apple Silicon (M1/M2/M3) রানার
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Cache CocoaPods (যদি প্রজেক্টে CocoaPods থাকে)
+        uses: actions/cache@v3
+        with:
+          path: Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods Dependencies
+        run: |
+          if [ -f Podfile ]; then
+            pod install
+          fi
+
+      - name: Set up Provisioning Profiles and Certificates (For Signed IPA)
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # যদি আপনার কাছে সার্টিফিকেট ও প্রোভিশনিং প্রোফাইল সিক্রেট যোগ করা থাকে
+          if [ -n "$BUILD_CERTIFICATE_BASE64" ]; then
+            CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+            PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+            KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+            echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+            echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+
+            security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+            security set-keychain-settings -lut 3600 $KEYCHAIN_PATH
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+            security import $CERTIFICATE_PATH -k $KEYCHAIN_PATH -P "$P12_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+            mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+            cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+          fi
+
+      - name: Build Archive for iPhone 15 Pro Max Target
+        run: |
+          xcodebuild archive \
+            -workspace NX2Apple.xcworkspace \
+            -scheme NX2Apple \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath $RUNNER_TEMP/NX2Apple.xcarchive \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export IPA File
+        run: |
+          mkdir -p $RUNNER_TEMP/build
+          
+          # Unsigned/Direct Payload Packaging Strategy
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -r $RUNNER_TEMP/NX2Apple.xcarchive/Products/Applications/*.app $RUNNER_TEMP/Payload/
+          cd $RUNNER_TEMP
+          zip -r NX2Apple_iPhone15ProMax.ipa Payload
+          mv NX2Apple_iPhone15ProMax.ipa $GITHUB_WORKSPACE/
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NX2Apple-iPhone15ProMax-IPA
+          path: NX2Apple_iPhone15ProMax.ipa
+          retention-days: 14
